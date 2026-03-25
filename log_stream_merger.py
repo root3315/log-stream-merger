@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Iterator, Optional, Tuple
 
 
-TIMESTAMP_PATTERNS = [
+DEFAULT_TIMESTAMP_PATTERNS = [
     (r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)", "%Y-%m-%dT%H:%M:%S"),
     (r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)", "%Y-%m-%d %H:%M:%S"),
     (r"(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}(?:\.\d+)?)", "%d/%b/%Y:%H:%M:%S"),
@@ -21,31 +21,52 @@ TIMESTAMP_PATTERNS = [
 ]
 
 
-def parse_timestamp(line: str) -> Optional[datetime]:
+def load_custom_patterns(pattern_file: Optional[Path]) -> list[Tuple[str, str]]:
+    """Load custom timestamp patterns from a file."""
+    if not pattern_file or not pattern_file.exists():
+        return []
+    
+    patterns = []
+    try:
+        with open(pattern_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("|", 1)
+                if len(parts) == 2:
+                    regex_pattern, datetime_format = parts
+                    patterns.append((regex_pattern.strip(), datetime_format.strip()))
+    except Exception as e:
+        print(f"Warning: Could not load pattern file {pattern_file}: {e}", file=sys.stderr)
+    
+    return patterns
+
+
+def parse_timestamp(line: str, patterns: list[Tuple[str, str]]) -> Optional[datetime]:
     """Extract and parse timestamp from a log line."""
-    for pattern, fmt in TIMESTAMP_PATTERNS:
+    for pattern, fmt in patterns:
         match = re.search(pattern, line)
         if match:
             ts_str = match.group(1)
             try:
-                if "T" in ts_str or "-" in ts_str[:4]:
-                    ts_str_clean = re.sub(r"(\.\d+)", "", ts_str)
-                    ts_str_clean = re.sub(r"(Z|[+-]\d{2}:?\d{2})$", "", ts_str_clean)
-                    return datetime.strptime(ts_str_clean, fmt.split("(")[0].strip())
-                elif "/" in ts_str:
-                    ts_str_clean = re.sub(r"(\.\d+)", "", ts_str)
-                    return datetime.strptime(ts_str_clean, fmt)
-                else:
-                    ts_str_clean = re.sub(r" +", " ", ts_str)
-                    parsed = datetime.strptime(ts_str_clean, fmt)
+                ts_str_clean = re.sub(r"(\.\d+)", "", ts_str)
+                ts_str_clean = re.sub(r"(Z|[+-]\d{2}:?\d{2})$", "", ts_str_clean)
+                ts_str_clean = re.sub(r" +", " ", ts_str_clean).strip()
+                
+                parsed = datetime.strptime(ts_str_clean, fmt)
+                
+                if fmt.startswith("%b"):
                     current_year = datetime.now().year
-                    return parsed.replace(year=current_year)
+                    parsed = parsed.replace(year=current_year)
+                
+                return parsed
             except ValueError:
                 continue
     return None
 
 
-def read_log_file(filepath: Path) -> Iterator[Tuple[datetime, str, int]]:
+def read_log_file(filepath: Path, patterns: list[Tuple[str, str]]) -> Iterator[Tuple[datetime, str, Path]]:
     """Read log file and yield (timestamp, line, file_index) tuples."""
     try:
         with open(filepath, "r", encoding="utf-8", errors="replace") as f:
@@ -53,7 +74,7 @@ def read_log_file(filepath: Path) -> Iterator[Tuple[datetime, str, int]]:
                 line = line.rstrip("\n\r")
                 if not line.strip():
                     continue
-                ts = parse_timestamp(line)
+                ts = parse_timestamp(line, patterns)
                 if ts:
                     yield (ts, line, filepath)
                 else:
@@ -66,7 +87,11 @@ def read_log_file(filepath: Path) -> Iterator[Tuple[datetime, str, int]]:
         print(f"Warning: Error reading {filepath}: {e}", file=sys.stderr)
 
 
-def merge_log_streams(filepaths: list[Path], output_file: Optional[Path] = None) -> None:
+def merge_log_streams(
+    filepaths: list[Path],
+    patterns: list[Tuple[str, str]],
+    output_file: Optional[Path] = None
+) -> None:
     """Merge multiple log files into chronological order."""
     if not filepaths:
         print("No input files provided", file=sys.stderr)
@@ -74,7 +99,7 @@ def merge_log_streams(filepaths: list[Path], output_file: Optional[Path] = None)
 
     file_iters = []
     for fp in filepaths:
-        file_iters.append(read_log_file(fp))
+        file_iters.append(read_log_file(fp, patterns))
 
     heap = []
     for idx, file_iter in enumerate(file_iters):
@@ -134,8 +159,34 @@ def main() -> None:
         action="store_true",
         help="Show processing details"
     )
+    parser.add_argument(
+        "-p", "--patterns",
+        type=Path,
+        default=None,
+        help="File with custom timestamp patterns (format: regex|datetime_format)"
+    )
+    parser.add_argument(
+        "--pattern",
+        action="append",
+        dest="inline_patterns",
+        metavar="REGEX|FORMAT",
+        help="Inline custom timestamp pattern (can be specified multiple times)"
+    )
 
     args = parser.parse_args()
+
+    patterns = list(DEFAULT_TIMESTAMP_PATTERNS)
+    
+    custom_patterns = load_custom_patterns(args.patterns)
+    patterns.extend(custom_patterns)
+    
+    if args.inline_patterns:
+        for inline in args.inline_patterns:
+            parts = inline.split("|", 1)
+            if len(parts) == 2:
+                patterns.append((parts[0].strip(), parts[1].strip()))
+            else:
+                print(f"Warning: Invalid pattern format '{inline}', expected 'regex|format'", file=sys.stderr)
 
     valid_files = validate_files(args.files)
 
@@ -144,11 +195,11 @@ def main() -> None:
         sys.exit(1)
 
     if args.verbose:
-        print(f"Merging {len(valid_files)} file(s)...", file=sys.stderr)
+        print(f"Merging {len(valid_files)} file(s) with {len(patterns)} pattern(s)...", file=sys.stderr)
         for fp in valid_files:
             print(f"  - {fp}", file=sys.stderr)
 
-    merge_log_streams(valid_files, args.output)
+    merge_log_streams(valid_files, patterns, args.output)
 
     if args.verbose:
         if args.output:
