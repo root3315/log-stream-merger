@@ -25,10 +25,41 @@ The script recognizes these common formats:
 
 Lines without recognizable timestamps get prefixed with `[UNPARSED]` and sorted to the top.
 
+## Custom Timestamp Formats
+
+If your logs use a non-standard timestamp format, you can add custom patterns.
+
+### Using a Pattern File
+
+Create a file with custom patterns, one per line:
+
+```
+# Custom patterns file
+# Format: regex_pattern|datetime_format
+(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})|%Y/%m/%d %H:%M:%S
+\[([\d-]+ \d+:\d+:\d+)\]|%Y-%m-%d %H:%M:%S
+```
+
+Then use it with:
+
+```bash
+python log_stream_merger.py -p custom_patterns.txt *.log -o merged.log
+```
+
+### Using Inline Patterns
+
+Add patterns directly on the command line:
+
+```bash
+python log_stream_merger.py --pattern '(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})|%Y/%m/%d %H:%M:%S' *.log
+```
+
+Multiple `--pattern` options can be specified.
+
 ## Usage
 
 ```
-usage: log_stream_merger.py [-h] [-o OUTPUT] [-v] files [files ...]
+usage: log_stream_merger.py [-h] [-o OUTPUT] [-v] [-p PATTERNS] [--pattern REGEX|FORMAT] files [files ...]
 
 Merge multiple log streams into one chronological feed
 
@@ -39,6 +70,8 @@ options:
   -h, --help            Show help message
   -o, --output OUTPUT   Output file (default: stdout)
   -v, --verbose         Show processing details
+  -p, --patterns FILE   File with custom timestamp patterns
+  --pattern REGEX|FORMAT  Inline custom pattern (can be repeated)
 ```
 
 ## Examples
@@ -56,6 +89,12 @@ python log_stream_merger.py *.log -o all_merged.log
 Verbose mode to see what's happening:
 ```bash
 python log_stream_merger.py app.log db.log -v
+```
+
+Use custom timestamp patterns:
+```bash
+python log_stream_merger.py -p my_patterns.txt *.log -o merged.log
+python log_stream_merger.py --pattern '(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})|%d-%m-%Y %H:%M:%S' *.log
 ```
 
 ## Installation
