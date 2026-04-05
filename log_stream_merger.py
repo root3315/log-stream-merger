@@ -25,7 +25,7 @@ def load_custom_patterns(pattern_file: Optional[Path]) -> list[Tuple[str, str]]:
     """Load custom timestamp patterns from a file."""
     if not pattern_file or not pattern_file.exists():
         return []
-    
+
     patterns = []
     try:
         with open(pattern_file, "r", encoding="utf-8") as f:
@@ -39,7 +39,7 @@ def load_custom_patterns(pattern_file: Optional[Path]) -> list[Tuple[str, str]]:
                     patterns.append((regex_pattern.strip(), datetime_format.strip()))
     except Exception as e:
         print(f"Warning: Could not load pattern file {pattern_file}: {e}", file=sys.stderr)
-    
+
     return patterns
 
 
@@ -53,17 +53,26 @@ def parse_timestamp(line: str, patterns: list[Tuple[str, str]]) -> Optional[date
                 ts_str_clean = re.sub(r"(\.\d+)", "", ts_str)
                 ts_str_clean = re.sub(r"(Z|[+-]\d{2}:?\d{2})$", "", ts_str_clean)
                 ts_str_clean = re.sub(r" +", " ", ts_str_clean).strip()
-                
+
                 parsed = datetime.strptime(ts_str_clean, fmt)
-                
+
                 if fmt.startswith("%b"):
                     current_year = datetime.now().year
                     parsed = parsed.replace(year=current_year)
-                
+
                 return parsed
             except ValueError:
                 continue
     return None
+
+
+def count_lines(filepath: Path) -> int:
+    """Count total lines in a file for progress tracking."""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            return sum(1 for _ in f)
+    except Exception:
+        return 0
 
 
 def read_log_file(filepath: Path, patterns: list[Tuple[str, str]]) -> Iterator[Tuple[datetime, str, Path]]:
@@ -90,12 +99,18 @@ def read_log_file(filepath: Path, patterns: list[Tuple[str, str]]) -> Iterator[T
 def merge_log_streams(
     filepaths: list[Path],
     patterns: list[Tuple[str, str]],
-    output_file: Optional[Path] = None
+    output_file: Optional[Path] = None,
+    show_progress: bool = False,
 ) -> None:
     """Merge multiple log files into chronological order."""
     if not filepaths:
         print("No input files provided", file=sys.stderr)
         sys.exit(1)
+
+    total_lines = 0
+    if show_progress:
+        for fp in filepaths:
+            total_lines += count_lines(fp)
 
     file_iters = []
     for fp in filepaths:
@@ -111,16 +126,29 @@ def merge_log_streams(
 
     output_handle = open(output_file, "w", encoding="utf-8") if output_file else sys.stdout
 
+    processed = 0
+    last_pct = -1
+
     try:
         while heap:
             ts, idx, line, source = heapq.heappop(heap)
             output_handle.write(f"{line}\n")
+            processed += 1
+
+            if show_progress and total_lines > 0:
+                pct = int(processed / total_lines * 100)
+                if pct != last_pct:
+                    print(f"\rProgress: {pct}% ({processed}/{total_lines} lines)", end="", file=sys.stderr)
+                    last_pct = pct
 
             try:
                 next_entry = next(file_iters[idx])
                 heapq.heappush(heap, (next_entry[0], idx, next_entry[1], next_entry[2]))
             except StopIteration:
                 pass
+
+        if show_progress:
+            print(f"\rProgress: 100% ({processed}/{total_lines} lines)\n", file=sys.stderr)
     finally:
         if output_file:
             output_handle.close()
@@ -172,14 +200,19 @@ def main() -> None:
         metavar="REGEX|FORMAT",
         help="Inline custom timestamp pattern (can be specified multiple times)"
     )
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Show progress indicator during merge"
+    )
 
     args = parser.parse_args()
 
     patterns = list(DEFAULT_TIMESTAMP_PATTERNS)
-    
+
     custom_patterns = load_custom_patterns(args.patterns)
     patterns.extend(custom_patterns)
-    
+
     if args.inline_patterns:
         for inline in args.inline_patterns:
             parts = inline.split("|", 1)
@@ -199,7 +232,7 @@ def main() -> None:
         for fp in valid_files:
             print(f"  - {fp}", file=sys.stderr)
 
-    merge_log_streams(valid_files, patterns, args.output)
+    merge_log_streams(valid_files, patterns, args.output, show_progress=args.progress)
 
     if args.verbose:
         if args.output:

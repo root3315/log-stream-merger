@@ -72,6 +72,7 @@ options:
   -v, --verbose         Show processing details
   -p, --patterns FILE   File with custom timestamp patterns
   --pattern REGEX|FORMAT  Inline custom pattern (can be repeated)
+  --progress            Show progress indicator during merge
 ```
 
 ## Examples
@@ -95,6 +96,11 @@ Use custom timestamp patterns:
 ```bash
 python log_stream_merger.py -p my_patterns.txt *.log -o merged.log
 python log_stream_merger.py --pattern '(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})|%d-%m-%Y %H:%M:%S' *.log
+```
+
+Show progress for large merges:
+```bash
+python log_stream_merger.py --progress *.log -o merged.log
 ```
 
 ## Installation
