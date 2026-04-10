@@ -6,6 +6,7 @@ Reads log files, parses timestamps, and outputs merged sorted entries.
 
 import argparse
 import heapq
+import itertools
 import re
 import sys
 from datetime import datetime
@@ -116,11 +117,12 @@ def merge_log_streams(
     for fp in filepaths:
         file_iters.append(read_log_file(fp, patterns))
 
+    sequence = itertools.count()
     heap = []
     for idx, file_iter in enumerate(file_iters):
         try:
             entry = next(file_iter)
-            heapq.heappush(heap, (entry[0], idx, entry[1], entry[2]))
+            heapq.heappush(heap, (entry[0], next(sequence), idx, entry[1], entry[2]))
         except StopIteration:
             pass
 
@@ -131,7 +133,7 @@ def merge_log_streams(
 
     try:
         while heap:
-            ts, idx, line, source = heapq.heappop(heap)
+            ts, _, idx, line, source = heapq.heappop(heap)
             output_handle.write(f"{line}\n")
             processed += 1
 
@@ -143,7 +145,7 @@ def merge_log_streams(
 
             try:
                 next_entry = next(file_iters[idx])
-                heapq.heappush(heap, (next_entry[0], idx, next_entry[1], next_entry[2]))
+                heapq.heappush(heap, (next_entry[0], next(sequence), idx, next_entry[1], next_entry[2]))
             except StopIteration:
                 pass
 
