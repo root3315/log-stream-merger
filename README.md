@@ -25,6 +25,30 @@ The script recognizes these common formats:
 
 Lines without recognizable timestamps get prefixed with `[UNPARSED]` and sorted to the top.
 
+## Timezone Support
+
+Timestamps with timezone offsets (e.g. `+05:30`, `-08:00`, `Z`) are parsed and converted to UTC for correct chronological ordering. By default, output is in UTC.
+
+### Output Timezone
+
+Use `--tz` to display timestamps in a specific timezone:
+
+```bash
+# Output in US Eastern (EST = UTC-5)
+python log_stream_merger.py --tz -05:00 app.log -o merged.log
+
+# Output in IST (UTC+5:30)
+python log_stream_merger.py --tz +05:30 app.log -o merged.log
+```
+
+### Preserve Original Timezones
+
+Use `--preserve-tz` to keep the original timezone offsets in the output:
+
+```bash
+python log_stream_merger.py --preserve-tz us.log eu.log -o merged.log
+```
+
 ## Custom Timestamp Formats
 
 If your logs use a non-standard timestamp format, you can add custom patterns.
@@ -59,7 +83,7 @@ Multiple `--pattern` options can be specified.
 ## Usage
 
 ```
-usage: log_stream_merger.py [-h] [-o OUTPUT] [-v] [-p PATTERNS] [--pattern REGEX|FORMAT] files [files ...]
+usage: log_stream_merger.py [-h] [-o OUTPUT] [-v] [-p PATTERNS] [--pattern REGEX|FORMAT] [--tz TZ] [--preserve-tz] [--progress] files [files ...]
 
 Merge multiple log streams into one chronological feed
 
@@ -72,6 +96,8 @@ options:
   -v, --verbose         Show processing details
   -p, --patterns FILE   File with custom timestamp patterns
   --pattern REGEX|FORMAT  Inline custom pattern (can be repeated)
+  --tz TZ               Output timezone (UTC, +HH:MM, -HH:MM). Default: UTC
+  --preserve-tz         Preserve original timezone offsets in output
   --progress            Show progress indicator during merge
 ```
 
@@ -101,6 +127,16 @@ python log_stream_merger.py --pattern '(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})|%d-
 Show progress for large merges:
 ```bash
 python log_stream_merger.py --progress *.log -o merged.log
+```
+
+Merge logs from different timezones, output in local time:
+```bash
+python log_stream_merger.py --tz +05:30 us.log eu.log asia.log -o merged.log
+```
+
+Merge while keeping original timezone offsets:
+```bash
+python log_stream_merger.py --preserve-tz *.log -o merged.log
 ```
 
 ## Installation
